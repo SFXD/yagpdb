@@ -125,7 +125,6 @@ var cmds = []*commands.YAGCommand{
 	{
 		CmdCategory:         commands.CategoryFun,
 		Name:                "GiveRepTemp",
-		Aliases:             []string{"+", "gr", "grep", "+rep"},
 		Description:         "Gives rep to someone",
 		RequiredArgs:        1,
 		SlashCommandEnabled: true,
