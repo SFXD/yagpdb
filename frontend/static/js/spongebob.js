@@ -614,6 +614,10 @@ function trackForm(form) {
 		console.log("Form changed!");
 		checkForUnsavedChanges();
 	})
+	$(`[form="${form.id}"]`).change(function() {
+		console.log("Form changed!");
+		checkForUnsavedChanges()
+	})
 
 	var observer = new MutationObserver(function (mutationList, observer) {
 		if (!document.body.contains(form)) {
@@ -672,6 +676,13 @@ function hideUnsavedChangesPopup(form) {
 	let index = unsavedChangesStack.indexOf(form);
 	unsavedChangesStack.splice(index, 1);
 	updateUnsavedChangesPopup(form)
+}
+
+// onbeforeunload
+function unsavedChangesAlert() {
+    if (unsavedChangesStack.length > 0) {
+        return "You have unsaved changes, are you sure you want to leave?";
+    }
 }
 
 function updateUnsavedChangesPopup() {

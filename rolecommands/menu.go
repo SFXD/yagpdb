@@ -100,7 +100,9 @@ func cmdFuncRoleMenuCreate(parsed *dcmd.Data) (interface{}, error) {
 		RoleGroupID:                null.Int64From(group.ID),
 		OwnMessage:                 true,
 		DisableSendDM:              parsed.Switches["nodm"].Value != nil && parsed.Switches["nodm"].Value.(bool),
-		RemoveRoleOnReactionRemove: true,
+		// `rr` is `true` by default, which is why we want
+		// a `true` value, if `.Value` is `nil`.
+		RemoveRoleOnReactionRemove: parsed.Switches["rr"].Value == nil || !parsed.Switches["rr"].Value.(bool),
 		SkipAmount:                 skipAmount,
 	}
 
@@ -127,7 +129,7 @@ func cmdFuncRoleMenuCreate(parsed *dcmd.Data) (interface{}, error) {
 			_, dErr := common.DiscordError(err)
 			errStr := "Failed creating the menu message, check the permissions on the channel"
 			if dErr != "" {
-				errStr += ", Discord responded with: " + errStr
+				errStr += ", Discord responded with: " + dErr
 			}
 			return errStr, err
 		}

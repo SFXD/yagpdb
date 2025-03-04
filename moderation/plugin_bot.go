@@ -3,6 +3,7 @@ package moderation
 import (
 	"database/sql"
 	"math/rand"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +22,6 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/lib/dstate"
 	"github.com/botlabs-gg/yagpdb/v2/moderation/models"
 	"github.com/karlseguin/ccache"
-	"github.com/mediocregopher/radix/v3"
 )
 
 var (
@@ -50,11 +50,10 @@ func (p *Plugin) BotInit() {
 	scheduledevents2.RegisterLegacyMigrater("unmute", handleMigrateScheduledUnmute)
 	scheduledevents2.RegisterLegacyMigrater("mod_unban", handleMigrateScheduledUnban)
 
-	eventsystem.AddHandlerAsyncLastLegacy(p, bot.ConcurrentEventHandler(HandleGuildBanAddRemove), eventsystem.EventGuildBanAdd, eventsystem.EventGuildBanRemove)
-	eventsystem.AddHandlerAsyncLast(p, HandleGuildMemberRemove, eventsystem.EventGuildMemberRemove)
 	eventsystem.AddHandlerAsyncLast(p, LockMemberMuteMW(HandleMemberJoin), eventsystem.EventGuildMemberAdd)
 	eventsystem.AddHandlerAsyncLast(p, LockMemberMuteMW(HandleGuildMemberUpdate), eventsystem.EventGuildMemberUpdate)
-	eventsystem.AddHandlerAsyncLast(p, HandleGuildMemberTimeoutChange, eventsystem.EventGuildMemberUpdate)
+
+	eventsystem.AddHandlerAsyncLast(p, HandleGuildAuditLogEntryCreate, eventsystem.EventGuildAuditLogEntryCreate)
 
 	eventsystem.AddHandlerAsyncLastLegacy(p, bot.ConcurrentEventHandler(HandleGuildCreate), eventsystem.EventGuildCreate)
 	eventsystem.AddHandlerAsyncLast(p, HandleChannelCreateUpdate, eventsystem.EventChannelCreate, eventsystem.EventChannelUpdate)
@@ -302,10 +301,10 @@ func RefreshMuteOverrideForChannel(config *Config, channel dstate.ChannelState) 
 	}
 }
 
-func HandleGuildMemberTimeoutChange(evt *eventsystem.EventData) (retry bool, err error) {
-	data := evt.GuildMemberUpdate()
-	//ignore members who aren't timedout or have been timedout in the past
-	if data.CommunicationDisabledUntil == nil || data.CommunicationDisabledUntil.Before(time.Now()) {
+func HandleGuildAuditLogEntryCreate(evt *eventsystem.EventData) (retry bool, err error) {
+	data := evt.GuildAuditLogEntryCreate()
+
+	if data.UserID == 0 || data.TargetID == 0 {
 		return false, nil
 	}
 
@@ -314,170 +313,54 @@ func HandleGuildMemberTimeoutChange(evt *eventsystem.EventData) (retry bool, err
 		return true, errors.WithStackIf(err)
 	}
 
-	// no modlog channel setup
 	if config.ActionChannel == 0 {
 		return false, nil
 	}
-	// If we poll the audit log too fast then there sometimes wont be a audit log entry
-	time.Sleep(time.Second * 3)
 
-	author, entry := FindAuditLogEntry(data.GuildID, discordgo.AuditLogActionMemberUpdate, data.User.ID, time.Second*5)
-	if entry == nil || author == nil {
-		return false, nil
-	}
-	logger.Infof("got timeout event %v", entry)
-
-	if *entry.Changes[0].Key != discordgo.AuditLogChangeKeyCommunicationDisabledUntil {
+	if data.UserID == common.BotUser.ID {
+		// we performed the action, do not duplicate
 		return false, nil
 	}
 
-	if author.ID == common.BotUser.ID {
-		// Bot performed the timeout, don't make duplicate modlog entries
+	var action ModlogAction
+	// setup done, now we get to the actions.
+	switch {
+	case config.LogTimeouts && *data.ActionType == discordgo.AuditLogActionMemberUpdate:
+		isTimeout := slices.ContainsFunc(data.Changes, func(c *discordgo.AuditLogChange) bool {
+			return *c.Key == discordgo.AuditLogChangeKeyCommunicationDisabledUntil && c.NewValue != nil
+		})
+		if !isTimeout {
+			return false, nil
+		}
+		action = MATimeoutAdded
+	case config.LogKicks && *data.ActionType == discordgo.AuditLogActionMemberKick:
+		action = MAKick
+	case config.LogBans && *data.ActionType == discordgo.AuditLogActionMemberBanAdd:
+		action = MABanned
+	case config.LogUnbans && *data.ActionType == discordgo.AuditLogActionMemberBanRemove:
+		action = MAUnbanned
+	default:
 		return false, nil
 	}
 
-	if !config.LogTimeouts {
-		// User doesn't want us to log timeouts not made through yag
-		return false, nil
-	}
-
-	err = CreateModlogEmbed(config, author, MATimeoutAdded, data.User, entry.Reason, "")
+	author, err := bot.GetMember(data.GuildID, data.UserID)
 	if err != nil {
-		logger.WithError(err).WithField("guild", data.GuildID).Error("Failed sending timeout log message")
 		return false, errors.WithStackIf(err)
 	}
-
+	target, err := common.BotSession.User(data.TargetID)
+	if err != nil {
+		// TargetID may not be a user ID, 404s are expected
+		if bot.CheckDiscordErrRetry(err) {
+			return true, errors.WithStackIf(err)
+		}
+		return false, err
+	}
+	err = CreateModlogEmbed(config, &author.User, action, target, data.Reason, "")
+	if err != nil {
+		logger.WithError(err).WithField("guild", data.GuildID).Error("Failed sending mod log entry.")
+		return false, err
+	}
 	return false, nil
-}
-
-func HandleGuildBanAddRemove(evt *eventsystem.EventData) {
-	var user *discordgo.User
-	var guildID = evt.GS.ID
-	var action ModlogAction
-
-	botPerformed := false
-
-	switch evt.Type {
-	case eventsystem.EventGuildBanAdd:
-
-		user = evt.GuildBanAdd().User
-		action = MABanned
-
-		var i int
-		common.RedisPool.Do(radix.Cmd(&i, "GET", RedisKeyBannedUser(guildID, user.ID)))
-		if i > 0 {
-			// The bot banned the user earlier, don't make duplicate entries in the modlog
-			common.RedisPool.Do(radix.Cmd(nil, "DEL", RedisKeyBannedUser(guildID, user.ID)))
-			return
-		}
-
-	case eventsystem.EventGuildBanRemove:
-
-		action = MAUnbanned
-		user = evt.GuildBanRemove().User
-
-		var i int
-		common.RedisPool.Do(radix.Cmd(&i, "GET", RedisKeyUnbannedUser(guildID, user.ID)))
-		if i > 0 {
-			// The bot was the one that performed the unban
-			common.RedisPool.Do(radix.Cmd(nil, "DEL", RedisKeyUnbannedUser(guildID, user.ID)))
-			if i == 2 {
-				//Bot performed non-scheduled unban, don't make duplicate entries in the modlog
-				return
-			}
-			// Bot performed scheduled unban, modlog entry must be handled
-			botPerformed = true
-		}
-
-	default:
-		return
-	}
-
-	config, err := BotCachedGetConfig(guildID)
-	if err != nil {
-		logger.WithError(err).WithField("guild", guildID).Error("Failed retrieving config")
-		return
-	}
-
-	if config.ActionChannel == 0 {
-		return
-	}
-
-	var author *discordgo.User
-	reason := ""
-
-	if !botPerformed {
-		// If we poll it too fast then there sometimes wont be a audit log entry
-		time.Sleep(time.Second * 3)
-
-		auditlogAction := discordgo.AuditLogActionMemberBanAdd
-		if evt.Type == eventsystem.EventGuildBanRemove {
-			auditlogAction = discordgo.AuditLogActionMemberBanRemove
-		}
-
-		var entry *discordgo.AuditLogEntry
-		author, entry = FindAuditLogEntry(guildID, auditlogAction, user.ID, -1)
-		if entry != nil {
-			reason = entry.Reason
-		}
-	}
-
-	if (action == MAUnbanned && !config.LogUnbans && !botPerformed) ||
-		(action == MABanned && !config.LogBans) {
-		return
-	}
-
-	// The bot only unbans people in the case of timed bans
-	if botPerformed {
-		author = common.BotUser
-		reason = "Timed ban expired"
-	}
-
-	err = CreateModlogEmbed(config, author, action, user, reason, "")
-	if err != nil {
-		logger.WithError(err).WithField("guild", guildID).Error("Failed sending " + action.Prefix + " log message")
-	}
-}
-
-func HandleGuildMemberRemove(evt *eventsystem.EventData) (retry bool, err error) {
-	data := evt.GuildMemberRemove()
-
-	config, err := BotCachedGetConfig(data.GuildID)
-	if err != nil {
-		return true, errors.WithStackIf(err)
-	}
-
-	if config.ActionChannel == 0 {
-		return false, nil
-	}
-
-	go checkAuditLogMemberRemoved(config, data)
-	return false, nil
-}
-
-func checkAuditLogMemberRemoved(config *Config, data *discordgo.GuildMemberRemove) {
-	// If we poll the audit log too fast then there sometimes wont be a audit log entry
-	time.Sleep(time.Second * 3)
-
-	author, entry := FindAuditLogEntry(data.GuildID, discordgo.AuditLogActionMemberKick, data.User.ID, time.Second*5)
-	if entry == nil || author == nil {
-		return
-	}
-
-	if author.ID == common.BotUser.ID {
-		// Bot performed the kick, don't make duplicate modlog entries
-		return
-	}
-
-	if !config.LogKicks {
-		// User doesn't want us to log kicks not made through yag
-		return
-	}
-
-	err := CreateModlogEmbed(config, author, MAKick, data.User, entry.Reason, "")
-	if err != nil {
-		logger.WithError(err).WithField("guild", data.GuildID).Error("Failed sending kick log message")
-	}
 }
 
 // Since updating mutes are now a complex operation with removing roles and whatnot,
@@ -680,6 +563,10 @@ func handleScheduledUnmute(evt *seventsmodels.ScheduledEvent, data interface{}) 
 	return false, nil
 }
 
+const (
+	scheduledUnbanReason = "Timed ban expired"
+)
+
 func handleScheduledUnban(evt *seventsmodels.ScheduledEvent, data interface{}) (retry bool, err error) {
 	unbanData := data.(*ScheduledUnbanData)
 
@@ -692,9 +579,18 @@ func handleScheduledUnban(evt *seventsmodels.ScheduledEvent, data interface{}) (
 		return false, nil
 	}
 
-	common.RedisPool.Do(radix.FlatCmd(nil, "SETEX", RedisKeyUnbannedUser(guildID, userID), 30, 1))
+	config, err := FetchConfig(guildID)
+	if err != nil {
+		return false, err
+	}
 
-	err = common.BotSession.GuildBanDelete(guildID, userID)
+	user := &discordgo.User{
+		Username:      "unknown",
+		Discriminator: "????",
+		ID:            userID,
+	}
+
+	_, err = UnbanUser(config, guildID, common.BotUser, scheduledUnbanReason, user)
 	if err != nil {
 		logger.WithField("guild", guildID).WithError(err).Error("failed unbanning user")
 		return scheduledevents2.CheckDiscordErrRetry(err), err

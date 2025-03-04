@@ -652,7 +652,7 @@ func shouldIgnoreChannel(msg *discordgo.Message, gs *dstate.GuildSet, cState *ds
 		return true
 	}
 
-	if !bot.IsNormalUserMessage(msg) {
+	if !bot.IsUserMessage(msg) {
 		return true
 	}
 
@@ -684,7 +684,12 @@ func CCActionExecLimit(guildID int64) int {
 }
 
 func (p *Plugin) OnRemovedPremiumGuild(GuildID int64) error {
-	commands, err := models.CustomCommands(qm.Where("guild_id = ?", GuildID), qm.Offset(MaxCommands)).AllG(context.Background())
+	_, err := models.CustomCommands(qm.Where("guild_id = ? AND length(regexp_replace(array_to_string(responses, ''), E'\\r', '', 'g')) > ?", GuildID, MaxCCResponsesLength)).UpdateAllG(context.Background(), models.M{"disabled": true})
+	if err != nil {
+		return errors.WrapIf(err, "Failed disabling long custom commands on premium removal")
+	}
+
+	commands, err := models.CustomCommands(qm.Where("guild_id = ? AND disabled = false", GuildID), qm.OrderBy("local_id ASC"), qm.Offset(MaxCommands)).AllG(context.Background())
 	if err != nil {
 		return errors.WrapIf(err, "failed getting custom commands")
 	}
@@ -700,10 +705,6 @@ func (p *Plugin) OnRemovedPremiumGuild(GuildID int64) error {
 		return errors.WrapIf(err, "Failed disabling trigger on edits on premium removal")
 	}
 
-	_, err = models.CustomCommands(qm.Where("guild_id = ? AND length(regexp_replace(array_to_string(responses, ''), E'\\r', '', 'g')) > ?", GuildID, MaxCCResponsesLength)).UpdateAllG(context.Background(), models.M{"disabled": true})
-	if err != nil {
-		return errors.WrapIf(err, "Failed disabling long customs commands on premium removal")
-	}
 	return nil
 }
 
@@ -737,9 +738,16 @@ func handleMessageReactions(evt *eventsystem.EventData) {
 	if cState == nil {
 		return
 	}
+	// if the execution channel is a thread, check for send message in thread perms on the parent channel.
+	permToCheck := discordgo.PermissionSendMessages
+	cID := cState.ID
+	if cState.Type.IsThread() {
+		permToCheck = discordgo.PermissionSendMessagesInThreads
+		cID = cState.ParentID
+	}
 
-	if hasPerms, _ := bot.BotHasPermissionGS(evt.GS, cState.ID, discordgo.PermissionSendMessages); !hasPerms {
-		// don't run in channel we don't have perms in
+	if hasPerms, _ := bot.BotHasPermissionGS(evt.GS, cID, permToCheck); !hasPerms {
+		// don't run in channel or thread we don't have perms in
 		return
 	}
 
@@ -992,17 +1000,12 @@ func findMessageTriggerCustomCommands(ctx context.Context, cs *dstate.ChannelSta
 		if cmd.Disabled || !CmdRunsInChannel(cmd, common.ChannelOrThreadParentID(cs)) || !CmdRunsForUser(cmd, ms) || cmd.R.Group != nil && cmd.R.Group.Disabled {
 			continue
 		}
+		content := msg.Content
 		if cmd.TriggerType == int(CommandTriggerContains) || cmd.TriggerType == int(CommandTriggerRegex) {
-			for _, content := range msg.GetMessageContents() {
-				if didMatch, stripped, args := CheckMatch(prefix, cmd, content); didMatch {
-					matched = append(matched, &TriggeredCC{
-						CC:       cmd,
-						Args:     args,
-						Stripped: stripped,
-					})
-				}
-			}
-		} else if didMatch, stripped, args := CheckMatch(prefix, cmd, msg.Content); didMatch {
+			//for contains and regex match, we need to look at the content of the forwarded message too.
+			content = strings.Join(msg.GetMessageContents(), " ")
+		}
+		if didMatch, stripped, args := CheckMatch(prefix, cmd, content); didMatch {
 			matched = append(matched, &TriggeredCC{
 				CC:       cmd,
 				Args:     args,
@@ -1660,7 +1663,7 @@ func BotCachedGetCommandsWithMessageTriggers(guildID int64, ctx context.Context)
 		var err error
 
 		common.LogLongCallTime(time.Second, true, "Took longer than a second to fetch custom commands from db", logrus.Fields{"guild": guildID}, func() {
-			cmds, err = models.CustomCommands(qm.Where("guild_id = ? AND trigger_type IN (0,1,2,3,4,6,7,8)", guildID), qm.OrderBy("local_id desc"), qm.Load("Group")).AllG(ctx)
+			cmds, err = models.CustomCommands(qm.Where("guild_id = ? AND trigger_type IN (0,1,2,3,4,6,7,8,9)", guildID), qm.OrderBy("local_id desc"), qm.Load("Group")).AllG(ctx)
 		})
 
 		return cmds, err

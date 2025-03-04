@@ -9,6 +9,7 @@ import (
 	"emperror.dev/errors"
 	"github.com/botlabs-gg/yagpdb/v2/bot/paginatedmessages"
 	"github.com/botlabs-gg/yagpdb/v2/common/config"
+	"github.com/botlabs-gg/yagpdb/v2/common/run"
 
 	"github.com/botlabs-gg/yagpdb/v2/bot"
 	"github.com/botlabs-gg/yagpdb/v2/bot/eventsystem"
@@ -30,6 +31,12 @@ func (p *Plugin) AddCommands() {
 		commands.AddRootCommands(p, cmdLogs, cmdWhois, cmdNicknames, cmdUsernames, cmdClearNames)
 	} else {
 		commands.AddRootCommands(p, cmdLogs, cmdWhois)
+		if run.FlagGenCmdDocs {
+			for _, cmd := range []*commands.YAGCommand{cmdNicknames, cmdUsernames, cmdClearNames} {
+				cmd.Description = fmt.Sprint(cmd.Description, " Disabled on the public instance.")
+				commands.AddRootCommands(p, cmd)
+			}
+		}
 	}
 }
 
@@ -79,7 +86,7 @@ var cmdLogs = &commands.YAGCommand{
 		l, err := CreateChannelLog(cmd.Context(), nil, cmd.GuildData.GS.ID, cID, cmd.Author.Username, cmd.Author.ID, num)
 		if err != nil {
 			if err == ErrChannelBlacklisted {
-				return "This channel is blacklisted from creating message logs, this can be changed in the control panel.", nil
+				return "This channel is ignored from creating message logs, this can be changed in the control panel.", nil
 			}
 
 			return "", err

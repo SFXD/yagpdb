@@ -71,6 +71,8 @@ var RulePartMap = map[int]RulePart{
 	216: &ThreadCondition{false},
 	217: &MessageAttachmentCondition{true},
 	218: &MessageAttachmentCondition{false},
+	219: &MessageForwardCondition{true},
+	220: &MessageForwardCondition{false},
 
 	// Effects 3xx
 	300: &DeleteMessageEffect{},
@@ -87,6 +89,7 @@ var RulePartMap = map[int]RulePart{
 	312: &RemoveRoleEffect{},
 	313: &SendChannelMessageEffect{},
 	314: &TimeoutUserEffect{},
+	315: &SendModeratorAlertMessageEffect{},
 }
 
 var InverseRulePartMap = make(map[RulePart]int)

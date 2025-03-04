@@ -169,7 +169,7 @@ table{
                         <div class="col-lg-12">
                             <form action="/manage/{{.ActiveGuild.ID}}/automod/new_list" method="post" data-async-form>
                                 <h4>Create a new list</h4>
-                                <p class="help-block">Lists are used for word/website blacklisting/whitelisting</p>
+                                <p class="help-block">Lists are used for word/website allowlist/denylist</p>
                                 <div class="form-group">
                                     <label for="am-new-ruleset-name">Name</label>
                                     <input type="text" name="Name" id="am-new-ruleset-name" class="form-control">
@@ -616,7 +616,7 @@ $(function(){
             <div class='form-group row'>
                 <label class='col-lg-2'>{{.Name}}:</label>
                 <div class='col-lg-10'>
-                    {{$name := joinStr "" $namePrefix "." $dot.partIndex ".Data." .Key}}
+                    {{$name := joinStr "." $namePrefix $dot.partIndex "Data" .Key}}
                     {{if eq .Kind "int"}}
                     <input type='number' class='form-control' name="{{$name}}" {{if or .Min .Max}} min="{{.Min}}" max="{{.Max}}" {{end}} value="{{index $dot.settings .Key}}"></input>
                     {{else if eq .Kind "multi_role"}}

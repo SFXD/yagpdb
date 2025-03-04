@@ -239,8 +239,8 @@ func CheckCanAccessLogs(w http.ResponseWriter, r *http.Request, config *models.G
 	member := web.ContextMember(ctx)
 	if member == nil {
 		goTo := url.QueryEscape(r.RequestURI)
-		alertLink := fmt.Sprintf(`<a href="%s/login?goto=%s>here</a>`, web.BaseURL(), goTo)
-		alertMsg := fmt.Sprintf("This server has restricted log access to members only.\nIf you are a member, click %s to login.", alertLink)
+		alertLink := fmt.Sprintf(`<a href="%s/login?goto=%s">log in with Discord</a>`, web.BaseURL(), goTo)
+		alertMsg := fmt.Sprintf("This server has restricted log access to members only. Please %s to view this log.", alertLink)
 
 		tmpl.AddAlerts(web.ErrorAlert(alertMsg))
 		return false
@@ -448,14 +448,14 @@ func (p *Plugin) LoadServerHomeWidget(w http.ResponseWriter, r *http.Request) (w
 		format := `<ul>
 		<li>Username logging: %s</li>
 		<li>Nickname logging: %s</li>
-		<li>Blacklisted channels from creating message logs: <code>%d</code></li>
+		<li>Ignored channels from creating message logs: <code>%d</code></li>
 	</ul>`
 		widgetBody = fmt.Sprintf(format,
 			web.EnabledDisabledSpanStatus(config.UsernameLoggingEnabled.Bool),
 			web.EnabledDisabledSpanStatus(config.NicknameLoggingEnabled.Bool),
 			nBlacklistedChannels)
 	} else {
-		widgetBody = fmt.Sprintf(`Blacklisted channels from creating message logs: <code>%d</code>`, nBlacklistedChannels)
+		widgetBody = fmt.Sprintf(`Ignored channels from creating message logs: <code>%d</code>`, nBlacklistedChannels)
 	}
 	templateData["WidgetBody"] = template.HTML(widgetBody)
 

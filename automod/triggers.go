@@ -171,10 +171,10 @@ func (wl *WordListTrigger) DataType() interface{} {
 
 func (wl *WordListTrigger) Name() (name string) {
 	if wl.Blacklist {
-		return "Word blacklist"
+		return "Word denylist"
 	}
 
-	return "Word whitelist"
+	return "Word allowlist"
 }
 
 func (wl *WordListTrigger) Description() (description string) {
@@ -262,10 +262,10 @@ func (dt *DomainTrigger) DataType() interface{} {
 
 func (dt *DomainTrigger) Name() (name string) {
 	if dt.Blacklist {
-		return "Website blacklist"
+		return "Website denylist"
 	}
 
-	return "Website whitelist"
+	return "Website allowlist"
 }
 
 func (dt *DomainTrigger) Description() (description string) {
@@ -763,7 +763,7 @@ func (s *SlowmodeTrigger) UserSettings() []*SettingDef {
 }
 
 func (s *SlowmodeTrigger) CheckMessage(triggerCtx *TriggerContext, cs *dstate.ChannelState, m *discordgo.Message) (bool, error) {
-	if s.Attachments && len(m.Attachments) < 1 {
+	if s.Attachments && len(m.GetMessageAttachments()) < 1 {
 		return false, nil
 	}
 
@@ -794,17 +794,19 @@ func (s *SlowmodeTrigger) CheckMessage(triggerCtx *TriggerContext, cs *dstate.Ch
 		}
 
 		if s.Attachments {
-			if len(v.Attachments) < 1 {
+			vAttachments := v.GetMessageAttachments()
+
+			if len(vAttachments) < 1 {
 				continue // we're only checking messages with attachments
 			}
 			if settings.SingleMessageAttachments {
 				// Add the count of all attachments of this message to the amount
-				amount += len(v.Attachments)
+				amount += len(vAttachments)
 			} else {
 				amount++
 			}
 		} else if s.Links {
-			contents := m.GetMessageContents()
+			contents := v.GetMessageContents()
 			contentString := strings.Join(contents, "")
 			linksLen := len(common.LinkRegex.FindAllString(common.ForwardSlashReplacer.Replace(contentString), -1))
 			if linksLen < 1 {
@@ -1098,7 +1100,7 @@ func (spam *SpamTrigger) CheckMessage(triggerCtx *TriggerContext, cs *dstate.Cha
 			break
 		}
 
-		if len(v.Attachments) > 0 {
+		if len(v.GetMessageAttachments()) > 0 {
 			break // treat any attachment as a different message, in the future i may download them and check hash or something? maybe too much
 		}
 
@@ -1212,10 +1214,10 @@ func (nwl *NicknameWordlistTrigger) DataType() interface{} {
 
 func (nwl *NicknameWordlistTrigger) Name() (name string) {
 	if nwl.Blacklist {
-		return "Nickname word blacklist"
+		return "Nickname word denylist"
 	}
 
-	return "Nickname word whitelist"
+	return "Nickname word allowlist"
 }
 
 func (nwl *NicknameWordlistTrigger) Description() (description string) {
@@ -1362,10 +1364,10 @@ func (uwl *UsernameWordlistTrigger) DataType() interface{} {
 
 func (uwl *UsernameWordlistTrigger) Name() (name string) {
 	if uwl.Blacklist {
-		return "Join username word blacklist"
+		return "Join username word denylist"
 	}
 
-	return "Join username word whitelist"
+	return "Join username word allowlist"
 }
 
 func (uwl *UsernameWordlistTrigger) Description() (description string) {
@@ -1532,7 +1534,7 @@ func (mat *MessageAttachmentTrigger) UserSettings() []*SettingDef {
 }
 
 func (mat *MessageAttachmentTrigger) CheckMessage(triggerCtx *TriggerContext, cs *dstate.ChannelState, m *discordgo.Message) (bool, error) {
-	contains := len(m.Attachments) > 0
+	contains := len(m.GetMessageAttachments()) > 0
 	if contains && mat.RequiresAttachment {
 		return true, nil
 	} else if !contains && !mat.RequiresAttachment {

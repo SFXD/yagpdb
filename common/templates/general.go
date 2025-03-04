@@ -10,9 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"crypto/sha256"
-	"encoding/base64"
-	
+
 	"emperror.dev/errors"
 	"github.com/botlabs-gg/yagpdb/v2/bot"
 	"github.com/botlabs-gg/yagpdb/v2/common"
@@ -431,8 +429,54 @@ func CreateMessageSend(values ...interface{}) (*discordgo.MessageSend, error) {
 				}
 				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.MessageComponent{menu}})
 			}
+		case "forward":
+			if val == nil {
+				continue
+			}
+			var m map[string]interface{}
+			switch t := val.(type) {
+			case SDict:
+				m = t
+			case *SDict:
+				m = *t
+			case map[string]interface{}:
+				m = t
+			default:
+				return nil, errors.New("invalid value passed to forward; must be an sdict with channel and message")
+			}
+
+			msg.Reference = &discordgo.MessageReference{
+				Type: 1,
+			}
+			for k, v := range m {
+				switch strings.ToLower(k) {
+				case "channel":
+					msg.Reference.ChannelID = ToInt64(v)
+					if msg.Reference.ChannelID <= 0 {
+						return nil, errors.New(fmt.Sprintf("invalid channel id '%s' provided to forward.", ToString(val)))
+					}
+				case "message":
+					msg.Reference.MessageID = ToInt64(v)
+					if msg.Reference.MessageID <= 0 {
+						return nil, errors.New(fmt.Sprintf("invalid message id '%s' provided to forward.", ToString(val)))
+					}
+				}
+			}
+		case "sticker":
+			if val == nil {
+				continue
+			}
+			v, _ := indirect(reflect.ValueOf(val))
+			if v.Kind() == reflect.Slice {
+				const maxStickers = 3 // Discord limitation
+				for i := 0; i < v.Len() && i < maxStickers; i++ {
+					msg.StickerIDs = append(msg.StickerIDs, ToInt64(v.Index(i).Interface()))
+				}
+			} else {
+				msg.StickerIDs = append(msg.StickerIDs, ToInt64(val))
+			}
 		default:
-			return nil, errors.New(`invalid key "` + key + `" passed to send message builder`)
+			return nil, errors.New(`invalid key "` + key + `" passed to send message builder.`)
 		}
 
 	}
@@ -899,9 +943,9 @@ func tmplMult(args ...interface{}) interface{} {
 	}
 }
 
-func tmplDiv(args ...interface{}) interface{} {
+func tmplDiv(args ...interface{}) (interface{}, error) {
 	if len(args) < 1 {
-		return 0
+		return 0, nil
 	}
 
 	switch args[0].(type) {
@@ -914,17 +958,20 @@ func tmplDiv(args ...interface{}) interface{} {
 
 			sumF /= ToFloat64(v)
 		}
-		return sumF
+		return sumF, nil
 	default:
 		sumI := tmplToInt(args[0])
 		for i, v := range args {
 			if i == 0 {
 				continue
 			}
+			if tmplToInt(v) == 0 {
+				return 0, errors.New("integer divide by zero")
+			}
 
 			sumI /= tmplToInt(v)
 		}
-		return sumI
+		return sumI, nil
 	}
 }
 
@@ -1293,66 +1340,34 @@ func shuffle(seq interface{}) (interface{}, error) {
 }
 
 func tmplToInt(from interface{}) int {
-	switch t := from.(type) {
-	case int:
-		return t
-	case int32:
-		return int(t)
-	case int64:
-		return int(t)
-	case float32:
-		return int(t)
-	case float64:
-		return int(t)
-	case uint:
-		return int(t)
-	case uint8:
-		return int(t)
-	case uint32:
-		return int(t)
-	case uint64:
-		return int(t)
-	case string:
-		parsed, _ := strconv.ParseInt(t, 10, 64)
+	t := reflect.ValueOf(from)
+	switch {
+	case t.CanInt():
+		return int(t.Int())
+	case t.CanFloat():
+		return int(t.Float())
+	case t.CanUint():
+		return int(t.Uint())
+	case t.Kind() == reflect.String:
+		parsed, _ := strconv.ParseInt(t.String(), 10, 64)
 		return int(parsed)
-	case time.Duration:
-		return int(t)
-	case time.Month:
-		return int(t)
-	case time.Weekday:
-		return int(t)
 	default:
 		return 0
 	}
 }
 
 func ToInt64(from interface{}) int64 {
-	switch t := from.(type) {
-	case int:
-		return int64(t)
-	case int32:
-		return int64(t)
-	case int64:
-		return int64(t)
-	case float32:
-		return int64(t)
-	case float64:
-		return int64(t)
-	case uint:
-		return int64(t)
-	case uint32:
-		return int64(t)
-	case uint64:
-		return int64(t)
-	case string:
-		parsed, _ := strconv.ParseInt(t, 10, 64)
+	t := reflect.ValueOf(from)
+	switch {
+	case t.CanInt():
+		return t.Int()
+	case t.CanFloat():
+		return int64(t.Float())
+	case t.CanUint():
+		return int64(t.Uint())
+	case t.Kind() == reflect.String:
+		parsed, _ := strconv.ParseInt(t.String(), 10, 64)
 		return parsed
-	case time.Duration:
-		return int64(t)
-	case time.Month:
-		return int64(t)
-	case time.Weekday:
-		return int64(t)
 	default:
 		return 0
 	}
@@ -1390,32 +1405,17 @@ func ToString(from interface{}) string {
 }
 
 func ToFloat64(from interface{}) float64 {
-	switch t := from.(type) {
-	case int:
-		return float64(t)
-	case int32:
-		return float64(t)
-	case int64:
-		return float64(t)
-	case float32:
-		return float64(t)
-	case float64:
-		return float64(t)
-	case uint:
-		return float64(t)
-	case uint32:
-		return float64(t)
-	case uint64:
-		return float64(t)
-	case string:
-		parsed, _ := strconv.ParseFloat(t, 64)
+	t := reflect.ValueOf(from)
+	switch {
+	case t.CanInt():
+		return float64(t.Int())
+	case t.CanFloat():
+		return t.Float()
+	case t.CanUint():
+		return float64(t.Uint())
+	case t.Kind() == reflect.String:
+		parsed, _ := strconv.ParseFloat(t.String(), 64)
 		return parsed
-	case time.Duration:
-		return float64(t)
-	case time.Month:
-		return float64(t)
-	case time.Weekday:
-		return float64(t)
 	default:
 		return 0
 	}
@@ -1688,25 +1688,4 @@ func tmplHumanizeDurationSeconds(in interface{}) string {
 
 func tmplHumanizeTimeSinceDays(in time.Time) string {
 	return common.HumanizeDuration(common.DurationPrecisionDays, time.Since(in))
-}
-
-func tmplDecodeBase64(str string) (string, error) {
-	raw, err := base64.StdEncoding.DecodeString(str)
-	if err != nil {
-		return "", err
-	}
-	return string(raw), nil
-}
-
-func tmplEncodeBase64(str string) string {
-	return base64.StdEncoding.EncodeToString([]byte(str))
-}
-
-func tmplSha256(str string) string {
-	hash := sha256.New()
-	hash.Write([]byte(str))
-	
-	sha256 := base64.URLEncoding.EncodeToString(hash.Sum(nil))
-
-	return sha256
 }
