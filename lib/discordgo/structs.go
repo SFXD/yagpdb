@@ -722,11 +722,28 @@ type Role struct {
 	// This is a combination of bit masks; the presence of a certain permission can
 	// be checked by performing a bitwise AND between this int and the permission.
 	Permissions int64 `json:"permissions,string"`
+
+	// The hash of the role icon. Use .IconURL to retrieve the icon's URL.
+	Icon string `json:"icon"`
 }
 
 // Mention returns a string which mentions the role
 func (r *Role) Mention() string {
 	return fmt.Sprintf("<@&%d>", r.ID)
+}
+
+func (r *Role) IconURL(size string) string {
+	if r.Icon == "" {
+		return ""
+	}
+
+	URL := EndpointRoleIcon(r.ID, r.Icon)
+
+	if size != "" {
+		return URL + "?size=" + size
+	}
+
+	return URL
 }
 
 // Roles are a collection of Role
@@ -1425,15 +1442,15 @@ type Webhook struct {
 
 // WebhookParams is a struct for webhook params, used in the WebhookExecute command.
 type WebhookParams struct {
-	Content         string             `json:"content,omitempty"`
-	Username        string             `json:"username,omitempty"`
-	AvatarURL       string             `json:"avatar_url,omitempty"`
-	TTS             bool               `json:"tts,omitempty"`
-	File            *File              `json:"-,omitempty"`
-	Components      []MessageComponent `json:"components"`
-	Embeds          []*MessageEmbed    `json:"embeds,omitempty"`
-	Flags           int64              `json:"flags,omitempty"`
-	AllowedMentions *AllowedMentions   `json:"allowed_mentions,omitempty"`
+	Content         string              `json:"content,omitempty"`
+	Username        string              `json:"username,omitempty"`
+	AvatarURL       string              `json:"avatar_url,omitempty"`
+	TTS             bool                `json:"tts,omitempty"`
+	File            *File               `json:"-,omitempty"`
+	Components      []TopLevelComponent `json:"components"`
+	Embeds          []*MessageEmbed     `json:"embeds,omitempty"`
+	Flags           int64               `json:"flags,omitempty"`
+	AllowedMentions *AllowedMentions    `json:"allowed_mentions,omitempty"`
 }
 
 // MessageReaction stores the data for a message reaction.

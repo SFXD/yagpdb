@@ -2,6 +2,7 @@ package automod
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +20,6 @@ import (
 	schEventsModels "github.com/botlabs-gg/yagpdb/v2/common/scheduledevents2/models"
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 	"github.com/botlabs-gg/yagpdb/v2/lib/dstate"
-	"github.com/mediocregopher/radix/v3"
 	"github.com/volatiletech/null/v8"
 	"github.com/volatiletech/sqlboiler/v4/boil"
 	"github.com/volatiletech/sqlboiler/v4/queries/qm"
@@ -213,7 +213,7 @@ func (p *Plugin) handleGuildMemberJoin(evt *eventsystem.EventData) {
 	ms := dstate.MemberStateFromMember(evtData.Member)
 
 	p.checkJoin(ms)
-	p.checkUsername(ms)
+	p.checkGlobalname(ms)
 }
 
 func (p *Plugin) checkNickname(ms *dstate.MemberState) {
@@ -232,19 +232,19 @@ func (p *Plugin) checkNickname(ms *dstate.MemberState) {
 	})
 }
 
-func (p *Plugin) checkUsername(ms *dstate.MemberState) {
+func (p *Plugin) checkGlobalname(ms *dstate.MemberState) {
 	gs := bot.State.GetGuild(ms.GuildID)
 	if gs == nil {
 		return
 	}
 
 	p.CheckTriggers(nil, gs, ms, nil, nil, func(trig *ParsedPart) (activated bool, err error) {
-		cast, ok := trig.Part.(UsernameListener)
+		cast, ok := trig.Part.(GlobalnameListener)
 		if !ok {
 			return false, nil
 		}
 
-		return cast.CheckUsername(&TriggerContext{GS: gs, MS: ms, Data: trig.ParsedSettings})
+		return cast.CheckGlobalname(&TriggerContext{GS: gs, MS: ms, Data: trig.ParsedSettings})
 	})
 }
 
@@ -276,19 +276,10 @@ func (p *Plugin) handleAutomodExecution(evt *eventsystem.EventData) {
 		return
 	}
 
-	redisKey := fmt.Sprintf("automodv2_rule_execution_%d", eventData.MessageID)
-
-	var exists string
-
-	if err := common.RedisPool.Do(radix.Cmd(&exists, "GET", redisKey)); err != nil {
-		return
-	}
-	if exists == "1" {
-		return
-	}
-
-	// Expires a temporary value after 5 seconds
-	if err := common.RedisPool.Do(radix.Cmd(nil, "SET", redisKey, "1", "EX", "5")); err != nil {
+	hash := md5.Sum(fmt.Appendf([]byte{}, "%s_%d_%d_%d", eventData.Content, eventData.RuleID, eventData.UserID, eventData.MessageID))
+	redisKey := fmt.Sprintf("automodv2_rule_execution_%x", hash)
+	locked, err := common.TryLockRedisKey(redisKey, 5)
+	if err != nil || !locked {
 		return
 	}
 

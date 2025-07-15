@@ -11,6 +11,7 @@ package discordgo
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -115,7 +116,7 @@ type Message struct {
 	Attachments []*MessageAttachment `json:"attachments"`
 
 	// A list of components attached to the message.
-	Components []MessageComponent `json:"-"`
+	Components []TopLevelComponent `json:"-"`
 
 	// A list of embeds present in the message. Multiple
 	// embeds can currently only be sent by webhooks.
@@ -167,6 +168,9 @@ type Message struct {
 	// An array of StickerItem objects, is the message contains any.
 	StickerItems  []*StickerItem `json:"sticker_items"`
 	ApplicationID int64          `json:"application_id,string"`
+
+	// Data of the role subscription purchase or renewal that prompted this role subscription message.
+	RoleSubscriptionData *RoleSubscriptionData `json:"role_subscription_data,omitempty"`
 }
 
 type MessageSnapshot struct {
@@ -181,6 +185,16 @@ func (m *Message) GetMessageContents() []string {
 		}
 	}
 	return contents
+}
+
+func (m *Message) GetMessageEmbeds() []*MessageEmbed {
+	embeds := m.Embeds
+	for _, s := range m.MessageSnapshots {
+		if s.Message != nil && len(s.Message.Embeds) > 0 {
+			embeds = append(embeds, s.Message.Embeds...)
+		}
+	}
+	return embeds
 }
 
 func (m *Message) GetMessageAttachments() []*MessageAttachment {
@@ -217,9 +231,22 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*m = Message(v.message)
-	m.Components = make([]MessageComponent, len(v.RawComponents))
+	m.Components = make([]TopLevelComponent, len(v.RawComponents))
 	for i, v := range v.RawComponents {
-		m.Components[i] = v.MessageComponent
+		var ok bool
+		comp := v.MessageComponent
+		m.Components[i], ok = comp.(TopLevelComponent)
+		if !ok {
+			return errors.New("non top level component passed to message unmarshaller")
+		}
+	}
+
+	if m.Flags&MessageFlagsIsComponentsV2 != 0 {
+		var contents []string
+		for _, c := range m.Components {
+			contents = append(contents, GetTextDisplayContent(c)...)
+		}
+		m.Content = strings.Join(contents, "\n")
 	}
 	return err
 }
@@ -252,6 +279,8 @@ const (
 	MessageFlagsSuppressNotifications MessageFlags = 1 << 12
 	// MessageFlagsIsVoiceMessage this message is a voice message.
 	MessageFlagsIsVoiceMessage MessageFlags = 1 << 13
+	// MessageFlagsIsComponentsV2 allows you to create fully component-driven messages
+	MessageFlagsIsComponentsV2 MessageFlags = 1 << 15
 )
 
 // File stores info about files you e.g. send in messages.
@@ -263,15 +292,15 @@ type File struct {
 
 // MessageSend stores all parameters you can send with ChannelMessageSendComplex.
 type MessageSend struct {
-	Content         string             `json:"content,omitempty"`
-	Embeds          []*MessageEmbed    `json:"embeds,omitempty"`
-	TTS             bool               `json:"tts"`
-	Components      []MessageComponent `json:"components"`
-	Files           []*File            `json:"-"`
-	AllowedMentions AllowedMentions    `json:"allowed_mentions,omitempty"`
-	Reference       *MessageReference  `json:"message_reference,omitempty"`
-	Flags           MessageFlags       `json:"flags,omitempty"`
-	StickerIDs      []int64            `json:"sticker_ids"`
+	Content         string              `json:"content,omitempty"`
+	Embeds          []*MessageEmbed     `json:"embeds,omitempty"`
+	TTS             bool                `json:"tts"`
+	Components      []TopLevelComponent `json:"components"`
+	Files           []*File             `json:"-"`
+	AllowedMentions AllowedMentions     `json:"allowed_mentions,omitempty"`
+	Reference       *MessageReference   `json:"message_reference,omitempty"`
+	Flags           MessageFlags        `json:"flags,omitempty"`
+	StickerIDs      []int64             `json:"sticker_ids"`
 
 	// TODO: Remove this when compatibility is not required.
 	File *File `json:"-"`
@@ -283,11 +312,11 @@ type MessageSend struct {
 // MessageEdit is used to chain parameters via ChannelMessageEditComplex, which
 // is also where you should get the instance from.
 type MessageEdit struct {
-	Content         *string            `json:"content,omitempty"`
-	Components      []MessageComponent `json:"components"`
-	Embeds          []*MessageEmbed    `json:"embeds,omitempty"`
-	AllowedMentions AllowedMentions    `json:"allowed_mentions,omitempty"`
-	Flags           MessageFlags       `json:"flags,omitempty"`
+	Content         *string             `json:"content,omitempty"`
+	Components      []TopLevelComponent `json:"components"`
+	Embeds          []*MessageEmbed     `json:"embeds,omitempty"`
+	AllowedMentions AllowedMentions     `json:"allowed_mentions,omitempty"`
+	Flags           MessageFlags        `json:"flags,omitempty"`
 
 	ID      int64
 	Channel int64
@@ -563,4 +592,12 @@ type MessageInteraction struct {
 
 	// Member is only present when the interaction is from a guild.
 	Member *Member `json:"member"`
+}
+
+// RoleSubscriptionData contains information about the data that prompted a role subscription purchase message (type 25).
+type RoleSubscriptionData struct {
+	RoleSubscriptionListingID int64  `json:"role_subscription_listing_id,string"`
+	TierName                  string `json:"tier_name"`
+	TotalMonthsSubscribed     int    `json:"total_months_subscribed"`
+	IsRenewal                 bool   `json:"is_renewal"`
 }

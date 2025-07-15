@@ -420,6 +420,8 @@ type MessageState struct {
 	ParsedEditedAt  time.Time
 
 	Deleted bool
+
+	RoleSubscriptionData *discordgo.RoleSubscriptionData
 }
 
 func (m *MessageState) GetMessageContents() []string {
@@ -431,6 +433,18 @@ func (m *MessageState) GetMessageContents() []string {
 		}
 	}
 	return contents
+}
+
+func (m *MessageState) GetMessageEmbeds() []discordgo.MessageEmbed {
+	embeds := m.Embeds
+	for _, s := range m.MessageSnapshots {
+		if s.Message != nil && len(s.Message.Embeds) > 0 {
+			for _, e := range s.Message.Embeds {
+				embeds = append(embeds, *e)
+			}
+		}
+	}
+	return embeds
 }
 
 func (m *MessageState) GetMessageAttachments() []discordgo.MessageAttachment {
