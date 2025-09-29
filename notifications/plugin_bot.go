@@ -173,6 +173,13 @@ func sendTemplate(gs *dstate.GuildSet, cs *dstate.ChannelState, tmpl string, ms 
 	}
 	ctx.DisabledContextFuncs = disableFuncs
 
+	// Construct a fake message so that things like exec and execAdmin work as expected.
+	ctx.Msg = new(discordgo.Message)
+	ctx.Msg.Author = &ms.User
+	ctx.Msg.Member = ms.DgoMember()
+	ctx.Msg.ChannelID = cs.ID
+	ctx.Msg.GuildID = gs.ID
+
 	msg, err := ctx.Execute(tmpl)
 	if err != nil {
 		logger.WithError(err).WithField("guild", gs.ID).Warnf("Failed parsing/executing %s template", name)
@@ -188,18 +195,7 @@ func sendTemplate(gs *dstate.GuildSet, cs *dstate.ChannelState, tmpl string, ms 
 	if cs.Type == discordgo.ChannelTypeDM {
 		msg = common.ReplaceServerInvites(msg, 0, "[removed-server-invite]")
 		msgSend := ctx.MessageSend(msg)
-		msgSend.Components = []discordgo.TopLevelComponent{
-			discordgo.ActionsRow{
-				Components: []discordgo.InteractiveComponent{
-					discordgo.Button{
-						Label:    "Show Server Info",
-						Style:    discordgo.PrimaryButton,
-						Emoji:    &discordgo.ComponentEmoji{Name: "📬"},
-						CustomID: fmt.Sprintf("DM_%d", gs.ID),
-					},
-				},
-			},
-		}
+		msgSend.Components = bot.GenerateServerInfoButton(gs.ID)
 		m, err = common.BotSession.ChannelMessageSendComplex(cs.ID, msgSend)
 	} else {
 		if len(ctx.CurrentFrame.AddResponseReactionNames) > 0 || ctx.CurrentFrame.DelResponse || ctx.CurrentFrame.PublishResponse {

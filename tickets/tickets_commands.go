@@ -278,7 +278,7 @@ func (p *Plugin) AddCommands() {
 		RequireDiscordPerms: []int64{discordgo.PermissionManageGuild},
 		ArgSwitches: []*dcmd.ArgDef{
 			{Name: "message", Help: "ID to attach menu to", Type: dcmd.BigInt},
-			{Name: "disable-custom", Help: "Disable Cutsom Reason button", Default: false},
+			{Name: "disable-custom", Help: "Disable Custom Reason button", Default: false},
 			{Name: "button-1", Help: "Predefined reason for button 1", Type: dcmd.String},
 			{Name: "button-2", Help: "Predefined reason for button 2", Type: dcmd.String},
 			{Name: "button-3", Help: "Predefined reason for button 3", Type: dcmd.String},
@@ -641,6 +641,9 @@ const TicketTXTDateFormat = "2006 Jan 02 15:04:05"
 
 func createTXTTranscript(ticket *models.Ticket, msgs []*discordgo.Message) *bytes.Buffer {
 	var buf bytes.Buffer
+
+	// Add UTF-8 BOM at the beginning
+	buf.Write([]byte{0xEF, 0xBB, 0xBF})
 
 	buf.WriteString(fmt.Sprintf("Transcript of ticket #%d - %s, opened by %s at %s, closed at %s.\n\n",
 		ticket.LocalID, ticket.Title, ticket.AuthorUsernameDiscrim, ticket.CreatedAt.UTC().Format(TicketTXTDateFormat), ticket.ClosedAt.Time.UTC().Format(TicketTXTDateFormat)))

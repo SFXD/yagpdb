@@ -133,10 +133,6 @@ func (c *Context) tmplDeleteInteractionResponse(interactionToken, msgID interfac
 }
 
 func (c *Context) tmplEditInteractionResponse(filterSpecialMentions bool) func(interactionToken, msgID, msg interface{}) (interface{}, error) {
-	parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
-	if !filterSpecialMentions {
-		parseMentions = append(parseMentions, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone)
-	}
 	return func(interactionToken, msgID, msg interface{}) (interface{}, error) {
 		if c.IncreaseCheckGenericAPICall() {
 			return "", ErrTooManyAPICalls
@@ -153,17 +149,17 @@ func (c *Context) tmplEditInteractionResponse(filterSpecialMentions bool) func(i
 			editOriginal = true
 		}
 
-		msgEdit := &discordgo.WebhookParams{
-			AllowedMentions: &discordgo.AllowedMentions{Parse: parseMentions},
+		msgEditResponse := &discordgo.WebhookParams{
+			AllowedMentions: &discordgo.AllowedMentions{Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}},
 		}
 		var err error
 
 		switch typedMsg := msg.(type) {
 
 		case *discordgo.MessageEmbed:
-			msgEdit.Embeds = []*discordgo.MessageEmbed{typedMsg}
+			msgEditResponse.Embeds = []*discordgo.MessageEmbed{typedMsg}
 		case []*discordgo.MessageEmbed:
-			msgEdit.Embeds = typedMsg
+			msgEditResponse.Embeds = typedMsg
 		case *discordgo.MessageEdit:
 			embeds := make([]*discordgo.MessageEmbed, 0, len(typedMsg.Embeds))
 			//If there are no Embeds and string are explicitly set as null, give an error message.
@@ -183,30 +179,41 @@ func (c *Context) tmplEditInteractionResponse(filterSpecialMentions bool) func(i
 				}
 			}
 			if typedMsg.Content != nil {
-				msgEdit.Content = *typedMsg.Content
+				msgEditResponse.Content = *typedMsg.Content
 			}
-			msgEdit.Embeds = typedMsg.Embeds
-			msgEdit.Components = typedMsg.Components
-			msgEdit.AllowedMentions = &typedMsg.AllowedMentions
+			msgEditResponse.Embeds = typedMsg.Embeds
+			msgEditResponse.Components = typedMsg.Components
+			msgEditResponse.AllowedMentions = &typedMsg.AllowedMentions
+		case *ComponentBuilder:
+			msg, err := typedMsg.ToComplexMessageEdit()
+			if err != nil {
+				return "", err
+			}
+			msgEditResponse.Components = msg.Components
+			msgEditResponse.Flags = int64(msg.Flags)
+			msgEditResponse.AllowedMentions = &msg.AllowedMentions
+
 		default:
 			temp := fmt.Sprint(msg)
-			msgEdit.Content = temp
+			msgEditResponse.Content = temp
 		}
 
+		parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
+		var repliedUser bool
 		if !filterSpecialMentions {
-			msgEdit.AllowedMentions = &discordgo.AllowedMentions{
-				Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone},
-			}
+			parseMentions = append(parseMentions, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone)
+			repliedUser = true
+			msgEditResponse.AllowedMentions = &discordgo.AllowedMentions{Parse: parseMentions, RepliedUser: repliedUser}
 		}
 
 		if editOriginal {
-			_, err = common.BotSession.EditOriginalInteractionResponse(common.BotApplication.ID, token, msgEdit)
+			_, err = common.BotSession.EditOriginalInteractionResponse(common.BotApplication.ID, token, msgEditResponse)
 			if err == nil && token == c.CurrentFrame.Interaction.Token {
 				c.CurrentFrame.Interaction.RespondedTo = true
 				c.CurrentFrame.Interaction.Deferred = false
 			}
 		} else {
-			_, err = common.BotSession.EditFollowupMessage(common.BotApplication.ID, token, mID, msgEdit)
+			_, err = common.BotSession.EditFollowupMessage(common.BotApplication.ID, token, mID, msgEditResponse)
 		}
 
 		if err != nil {
@@ -295,13 +302,6 @@ func (c *Context) tmplSendModal(modal interface{}) (interface{}, error) {
 }
 
 func (c *Context) tmplSendInteractionResponse(filterSpecialMentions bool, returnID bool) func(interactionToken interface{}, msg interface{}) interface{} {
-	var repliedUser bool
-	parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
-	if !filterSpecialMentions {
-		parseMentions = append(parseMentions, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone)
-		repliedUser = true
-	}
-
 	return func(interactionToken interface{}, msg interface{}) interface{} {
 		if c.IncreaseCheckGenericAPICall() {
 			return ""
@@ -313,33 +313,45 @@ func (c *Context) tmplSendInteractionResponse(filterSpecialMentions bool, return
 		}
 
 		var m *discordgo.Message
-		msgSend := &discordgo.InteractionResponseData{
-			AllowedMentions: &discordgo.AllowedMentions{
-				Parse:       parseMentions,
-				RepliedUser: repliedUser,
-			},
-		}
+		msgReponse := &discordgo.InteractionResponseData{}
 		var err error
 
 		switch typedMsg := msg.(type) {
 		case *discordgo.MessageEmbed:
-			msgSend.Embeds = []*discordgo.MessageEmbed{typedMsg}
+			msgReponse.Embeds = []*discordgo.MessageEmbed{typedMsg}
 		case []*discordgo.MessageEmbed:
-			msgSend.Embeds = typedMsg
+			msgReponse.Embeds = typedMsg
 		case *discordgo.MessageSend:
-			msgSend.Content = typedMsg.Content
-			msgSend.Embeds = typedMsg.Embeds
-			msgSend.Components = typedMsg.Components
-			msgSend.Flags = typedMsg.Flags
-			msgSend.Files = typedMsg.Files
+			msgReponse.Content = typedMsg.Content
+			msgReponse.Embeds = typedMsg.Embeds
+			msgReponse.Components = typedMsg.Components
+			msgReponse.Flags = typedMsg.Flags
+			msgReponse.Files = typedMsg.Files
 			if typedMsg.File != nil {
-				msgSend.Files = []*discordgo.File{typedMsg.File}
+				msgReponse.Files = []*discordgo.File{typedMsg.File}
 			}
-			if !filterSpecialMentions {
-				msgSend.AllowedMentions = &discordgo.AllowedMentions{Parse: parseMentions, RepliedUser: repliedUser}
+		case *ComponentBuilder:
+			msg, err := typedMsg.ToComplexMessage()
+			if err != nil {
+				return ""
+			}
+			msgReponse.Components = msg.Components
+			msgReponse.Flags = msg.Flags
+			msgReponse.Files = msg.Files
+			msgReponse.AllowedMentions = &msg.AllowedMentions
+			if msg.File != nil {
+				msgReponse.Files = []*discordgo.File{msg.File}
 			}
 		default:
-			msgSend.Content = ToString(msg)
+			msgReponse.Content = ToString(msg)
+		}
+
+		parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
+		var repliedUser bool
+		if !filterSpecialMentions {
+			parseMentions = append(parseMentions, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone)
+			repliedUser = true
+			msgReponse.AllowedMentions = &discordgo.AllowedMentions{Parse: parseMentions, RepliedUser: repliedUser}
 		}
 
 		switch sendType {
@@ -349,7 +361,7 @@ func (c *Context) tmplSendInteractionResponse(filterSpecialMentions bool, return
 			}
 			err = common.BotSession.CreateInteractionResponse(c.CurrentFrame.Interaction.ID, token, &discordgo.InteractionResponse{
 				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: msgSend,
+				Data: msgReponse,
 			})
 			if err == nil {
 				if token == c.CurrentFrame.Interaction.Token {
@@ -361,16 +373,16 @@ func (c *Context) tmplSendInteractionResponse(filterSpecialMentions bool, return
 			}
 		case sendMessageInteractionFollowup:
 			var file *discordgo.File
-			if len(msgSend.Files) > 0 {
-				file = msgSend.Files[0]
+			if len(msgReponse.Files) > 0 {
+				file = msgReponse.Files[0]
 			}
 
 			m, err = common.BotSession.CreateFollowupMessage(common.BotApplication.ID, token, &discordgo.WebhookParams{
-				Content:         msgSend.Content,
-				Components:      msgSend.Components,
-				Embeds:          msgSend.Embeds,
-				AllowedMentions: msgSend.AllowedMentions,
-				Flags:           int64(msgSend.Flags),
+				Content:         msgReponse.Content,
+				Components:      msgReponse.Components,
+				Embeds:          msgReponse.Embeds,
+				AllowedMentions: msgReponse.AllowedMentions,
+				Flags:           int64(msgReponse.Flags),
 				File:            file,
 			})
 		}
@@ -384,10 +396,6 @@ func (c *Context) tmplSendInteractionResponse(filterSpecialMentions bool, return
 }
 
 func (c *Context) tmplUpdateMessage(filterSpecialMentions bool) func(msg interface{}) (interface{}, error) {
-	parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
-	if !filterSpecialMentions {
-		parseMentions = append(parseMentions, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone)
-	}
 	return func(msg interface{}) (interface{}, error) {
 		if c.CurrentFrame.Interaction == nil {
 			return "", errors.New("no interaction data in context; consider editMessage or editResponse")
@@ -401,21 +409,21 @@ func (c *Context) tmplUpdateMessage(filterSpecialMentions bool) func(msg interfa
 			return "", ErrTooManyInteractionResponses
 		}
 
-		msgEdit := &discordgo.InteractionResponseData{
-			AllowedMentions: &discordgo.AllowedMentions{Parse: parseMentions},
+		msgResponseEdit := &discordgo.InteractionResponseData{
+			AllowedMentions: &discordgo.AllowedMentions{Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}},
 		}
 		var err error
 
 		switch typedMsg := msg.(type) {
 
 		case *discordgo.MessageEmbed:
-			msgEdit.Embeds = []*discordgo.MessageEmbed{typedMsg}
+			msgResponseEdit.Embeds = []*discordgo.MessageEmbed{typedMsg}
 		case []*discordgo.MessageEmbed:
-			msgEdit.Embeds = typedMsg
+			msgResponseEdit.Embeds = typedMsg
 		case *discordgo.MessageEdit:
 			embeds := make([]*discordgo.MessageEmbed, 0, len(typedMsg.Embeds))
 			//If there are no Embeds and string are explicitly set as null, give an error message.
-			if typedMsg.Content != nil && strings.TrimSpace(*typedMsg.Content) == "" {
+			if typedMsg.Flags&discordgo.MessageFlagsIsComponentsV2 == 0 && typedMsg.Content != nil && strings.TrimSpace(*typedMsg.Content) == "" {
 				if len(typedMsg.Embeds) == 0 && len(typedMsg.Components) == 0 {
 					return "", errors.New("both content and embed cannot be null")
 				}
@@ -431,25 +439,35 @@ func (c *Context) tmplUpdateMessage(filterSpecialMentions bool) func(msg interfa
 				}
 			}
 			if typedMsg.Content != nil {
-				msgEdit.Content = *typedMsg.Content
+				msgResponseEdit.Content = *typedMsg.Content
 			}
-			msgEdit.Embeds = typedMsg.Embeds
-			msgEdit.Components = typedMsg.Components
-			msgEdit.AllowedMentions = &typedMsg.AllowedMentions
+			msgResponseEdit.Embeds = typedMsg.Embeds
+			msgResponseEdit.Components = typedMsg.Components
+			msgResponseEdit.AllowedMentions = &typedMsg.AllowedMentions
+		case *ComponentBuilder:
+			msg, err := typedMsg.ToComplexMessageEdit()
+			if err != nil {
+				return "", err
+			}
+			msgResponseEdit.Components = msg.Components
+			msgResponseEdit.Flags = msg.Flags
+			msgResponseEdit.AllowedMentions = &msg.AllowedMentions
 		default:
 			temp := fmt.Sprint(msg)
-			msgEdit.Content = temp
+			msgResponseEdit.Content = temp
 		}
 
+		parseMentions := []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers}
+		repliedUser := false
 		if !filterSpecialMentions {
-			msgEdit.AllowedMentions = &discordgo.AllowedMentions{
-				Parse: []discordgo.AllowedMentionType{discordgo.AllowedMentionTypeUsers, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone},
-			}
+			parseMentions = append(parseMentions, discordgo.AllowedMentionTypeRoles, discordgo.AllowedMentionTypeEveryone)
+			repliedUser = true
+			msgResponseEdit.AllowedMentions = &discordgo.AllowedMentions{Parse: parseMentions, RepliedUser: repliedUser}
 		}
 
 		err = common.BotSession.CreateInteractionResponse(c.CurrentFrame.Interaction.ID, c.CurrentFrame.Interaction.Token, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseUpdateMessage,
-			Data: msgEdit,
+			Data: msgResponseEdit,
 		})
 
 		if err != nil {

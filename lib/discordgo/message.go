@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 // MessageType is the type of Message
@@ -251,6 +253,33 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	return err
 }
 
+// Custom UnmarshalJSON for MessageSend to support v2 components
+func (m *MessageSend) UnmarshalJSON(data []byte) error {
+
+	type messageSend MessageSend
+	var v struct {
+		messageSend
+		RawComponents []unmarshalableMessageComponent `json:"components"`
+	}
+
+	err := json.Unmarshal(data, &v)
+	if err != nil {
+		logrus.WithError(err).Errorf("failed to unmarshal messageSend")
+		return err
+	}
+	*m = MessageSend(v.messageSend)
+	m.Components = make([]TopLevelComponent, len(v.RawComponents))
+	for i, v := range v.RawComponents {
+		var ok bool
+		comp := v.MessageComponent
+		m.Components[i], ok = comp.(TopLevelComponent)
+		if !ok {
+			return errors.New("non top level component passed to MessageSend unmarshaller")
+		}
+	}
+	return err
+}
+
 // MessageFlags is the flags of "message" (see MessageFlags* consts)
 // https://discord.com/developers/docs/resources/channel#message-object-message-flags
 type MessageFlags int
@@ -312,14 +341,38 @@ type MessageSend struct {
 // MessageEdit is used to chain parameters via ChannelMessageEditComplex, which
 // is also where you should get the instance from.
 type MessageEdit struct {
-	Content         *string             `json:"content,omitempty"`
-	Components      []TopLevelComponent `json:"components"`
-	Embeds          []*MessageEmbed     `json:"embeds,omitempty"`
-	AllowedMentions AllowedMentions     `json:"allowed_mentions,omitempty"`
-	Flags           MessageFlags        `json:"flags,omitempty"`
+	Content         *string
+	Components      []TopLevelComponent
+	Embeds          []*MessageEmbed
+	AllowedMentions AllowedMentions
+	Flags           MessageFlags
 
 	ID      int64
 	Channel int64
+}
+
+func (m *MessageEdit) MarshalJSON() ([]byte, error) {
+	type MessageEditAlias MessageEdit
+	temp := struct {
+		*MessageEditAlias
+		Content         *string             `json:"content,omitempty"`
+		Components      []TopLevelComponent `json:"components"`
+		Embeds          *[]*MessageEmbed    `json:"embeds,omitempty"`
+		AllowedMentions *AllowedMentions    `json:"allowed_mentions,omitempty"`
+		Flags           *MessageFlags       `json:"flags,omitempty"`
+	}{
+		MessageEditAlias: (*MessageEditAlias)(m),
+		Content:          m.Content,
+		Components:       m.Components,
+		AllowedMentions:  &m.AllowedMentions,
+		Flags:            &m.Flags,
+	}
+
+	if m.Embeds != nil {
+		temp.Embeds = &m.Embeds
+	}
+
+	return json.Marshal(temp)
 }
 
 // NewMessageEdit returns a MessageEdit struct, initialized

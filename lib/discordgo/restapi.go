@@ -155,7 +155,7 @@ func (s *Session) doRequest(method, urlStr, contentType string, b []byte, header
 	case http.StatusBadGateway, http.StatusGatewayTimeout:
 		// Retry sending request if possible
 		err = errors.Errorf("%s Failed (%s)", urlStr, resp.Status)
-		s.log(LogWarning, err.Error())
+		s.log(LogWarning, "Error: %s", err.Error())
 		return nil, true, false, err
 
 	case 429: // TOO MANY REQUESTS - Rate limiting
@@ -971,13 +971,47 @@ func (s *Session) GuildMemberTimeout(guildID int64, userID int64, until *time.Ti
 // guildID   : The ID of a guild
 // nickname  : The new nickname
 func (s *Session) GuildMemberNicknameMe(guildID int64, nickname string) (err error) {
-
-	data := struct {
-		Nick string `json:"nick"`
-	}{nickname}
-
-	_, err = s.RequestWithBucketID("PATCH", EndpointGuildMemberMe(guildID)+"/nick", data, nil, EndpointGuildMember(guildID, 0))
+	data := CurrentGuildMemberUpdate{
+		Nick: nickname,
+	}
+	_, err = s.GuildMemberMe(guildID, data)
 	return
+}
+
+// GuildMemberMe updates the nickname the current user
+// guildID   : The ID of a guild
+// data  :  contains optional Banner, Avatar, Nick, and Bio
+func (s *Session) GuildMemberMe(guildID int64, data CurrentGuildMemberUpdate) (response *Member, err error) {
+	body, err := s.RequestWithBucketID("PATCH", EndpointGuildMemberMe(guildID), data, nil, EndpointGuildMember(guildID, 0))
+	if err != nil {
+		return nil, err
+	}
+	err = unmarshal(body, &response)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func (s *Session) GuildMemberMeReset(guildID int64, resetAvatar bool, resetBanner bool, resetNick bool) error {
+	payload := struct {
+		Avatar *string `json:"avatar"`
+		Banner *string `json:"banner"`
+		Nick   *string `json:"nick"`
+	}{}
+
+	if resetAvatar {
+		payload.Avatar = nil
+	}
+	if resetBanner {
+		payload.Banner = nil
+	}
+	if resetNick {
+		payload.Nick = nil
+	}
+
+	_, err := s.RequestWithBucketID("PATCH", EndpointGuildMemberMe(guildID), payload, nil, EndpointGuildMember(guildID, 0))
+	return err
 }
 
 // GuildMemberRoleAdd adds the specified role to a given member
@@ -1626,7 +1660,9 @@ var quoteEscaper = strings.NewReplacer("\\", "\\\\", `"`, "\\\"")
 // channelID : The ID of a Channel.
 // data      : The message struct to send.
 func (s *Session) ChannelMessageSendComplex(channelID int64, msg *MessageSend) (st *Message, err error) {
-	msg.Embeds = ValidateComplexMessageEmbeds(msg.Embeds)
+	if len(msg.Embeds) > 0 {
+		msg.Embeds = ValidateComplexMessageEmbeds(msg.Embeds)
+	}
 	endpoint := EndpointChannelMessages(channelID)
 
 	// TODO: Remove this when compatibility is not required.
@@ -1772,7 +1808,10 @@ func (s *Session) ChannelMessageEdit(channelID, messageID int64, content string)
 // ChannelMessageEditComplex edits an existing message, replacing it entirely with
 // the given MessageEdit struct
 func (s *Session) ChannelMessageEditComplex(msg *MessageEdit) (st *Message, err error) {
-	msg.Embeds = ValidateComplexMessageEmbeds(msg.Embeds)
+	if len(msg.Embeds) > 0 {
+		msg.Embeds = ValidateComplexMessageEmbeds(msg.Embeds)
+	}
+
 	response, err := s.RequestWithBucketID("PATCH", EndpointChannelMessage(msg.Channel, msg.ID), msg, nil, EndpointChannelMessage(msg.Channel, 0))
 	if err != nil {
 		return
@@ -2277,6 +2316,9 @@ func (s *Session) WebhookExecute(webhookID int64, token string, wait bool, data 
 // webhookID: The ID of a webhook.
 // token    : The auth token for the webhook
 func (s *Session) WebhookExecuteComplex(webhookID int64, token string, wait bool, data *WebhookParams) (m *Message, err error) {
+	if len(data.Embeds) > 0 {
+		data.Embeds = ValidateComplexMessageEmbeds(data.Embeds)
+	}
 	uri := EndpointWebhookToken(webhookID, token)
 
 	if wait {
@@ -3104,6 +3146,10 @@ func (s *Session) BatchEditGuildApplicationCommandsPermissions(applicationID int
 // CreateInteractionResponse Create a response to an Interaction from the gateway. Takes an Interaction response.
 // POST /interactions/{interaction.id}/{interaction.token}/callback
 func (s *Session) CreateInteractionResponse(interactionID int64, token string, data *InteractionResponse) (err error) {
+	if data.Data != nil && len(data.Data.Embeds) > 0 {
+		data.Data.Embeds = ValidateComplexMessageEmbeds(data.Data.Embeds)
+	}
+
 	if data.Data != nil && len(data.Data.Files) > 0 {
 		contentType, body, err := MultipartBodyWithJSON(data, data.Data.Files)
 		if err != nil {
@@ -3133,6 +3179,9 @@ func (s *Session) GetOriginalInteractionResponse(applicationID int64, token stri
 // Edits the initial Interaction response. Functions the same as Edit Webhook Message.
 // PATCH /webhooks/{application.id}/{interaction.token}/messages/@original
 func (s *Session) EditOriginalInteractionResponse(applicationID int64, token string, data *WebhookParams) (st *Message, err error) {
+	if len(data.Embeds) > 0 {
+		data.Embeds = ValidateComplexMessageEmbeds(data.Embeds)
+	}
 	body, err := s.RequestWithBucketID("PATCH", EndpointInteractionOriginalMessage(applicationID, token), data, nil, EndpointInteractionOriginalMessage(0, ""))
 	if err != nil {
 		return
@@ -3159,6 +3208,9 @@ func (s *Session) CreateFollowupMessage(applicationID int64, token string, data 
 // EditFollowupMessage Edits a followup message for an Interaction. Functions the same as Edit Webhook Message.
 // PATCH /webhooks/{application.id}/{interaction.token}/messages/{message.id}
 func (s *Session) EditFollowupMessage(applicationID int64, token string, messageID int64, data *WebhookParams) (st *Message, err error) {
+	if len(data.Embeds) > 0 {
+		data.Embeds = ValidateComplexMessageEmbeds(data.Embeds)
+	}
 	body, err := s.RequestWithBucketID("PATCH", EndpointInteractionFollowupMessage(applicationID, token, messageID), data, nil, EndpointInteractionFollowupMessage(0, "", 0))
 	if err != nil {
 		return

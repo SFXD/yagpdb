@@ -121,7 +121,7 @@ func punish(config *Config, p Punishment, guildID int64, channel *dstate.Channel
 			return errors.New("cannot " + actionPresentTense + " a member who is ranked higher than the bot")
 		}
 
-		go sendPunishDM(config, msg, action, gs, channel, message, author, member, duration, reason, -1, executedFromCommandTemplate)
+		sendPunishDM(config, msg, action, gs, channel, message, author, member, duration, reason, -1, executedFromCommandTemplate)
 	}
 
 	logLink := ""
@@ -239,7 +239,16 @@ func sendPunishDM(config *Config, dmMsg string, action ModlogAction, gs *dstate.
 	}
 
 	if strings.TrimSpace(executed) != "" {
-		err = bot.SendDM(member.User.ID, "**"+gs.Name+":** "+executed)
+		msgSend := &discordgo.MessageSend{
+			Embeds: []*discordgo.MessageEmbed{
+				{
+					Description: common.ReplaceServerInvites(executed, 0, "[removed-server-invite]"),
+				},
+			},
+			Components: bot.GenerateServerInfoButton(gs.ID),
+		}
+
+		err = bot.SendDMComplexMessage(member.User.ID, msgSend)
 		if err != nil {
 			logger.WithError(err).Error("failed sending punish DM")
 			sendFailedDMError(gs.ID, config.ErrorChannel, fmt.Sprintf("Failed executing punishment DM (Action: `%s`).\nError: `%v`", ActionMap[action.Prefix], err))

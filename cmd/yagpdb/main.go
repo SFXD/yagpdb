@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/botlabs-gg/yagpdb/v2/analytics"
 	"github.com/botlabs-gg/yagpdb/v2/antiphishing"
+	"github.com/botlabs-gg/yagpdb/v2/bulkrole"
 	"github.com/botlabs-gg/yagpdb/v2/common/featureflags"
 	"github.com/botlabs-gg/yagpdb/v2/common/prom"
 	"github.com/botlabs-gg/yagpdb/v2/common/run"
@@ -28,6 +29,7 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/logs"
 	"github.com/botlabs-gg/yagpdb/v2/moderation"
 	"github.com/botlabs-gg/yagpdb/v2/notifications"
+	"github.com/botlabs-gg/yagpdb/v2/personalizer"
 	"github.com/botlabs-gg/yagpdb/v2/premium"
 	"github.com/botlabs-gg/yagpdb/v2/premium/discordpremiumsource"
 	"github.com/botlabs-gg/yagpdb/v2/premium/patreonpremiumsource"
@@ -35,6 +37,7 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/reminders"
 	"github.com/botlabs-gg/yagpdb/v2/reputation"
 	"github.com/botlabs-gg/yagpdb/v2/rolecommands"
+	"github.com/botlabs-gg/yagpdb/v2/rss"
 	"github.com/botlabs-gg/yagpdb/v2/rsvp"
 	"github.com/botlabs-gg/yagpdb/v2/safebrowsing"
 	"github.com/botlabs-gg/yagpdb/v2/serverstats"
@@ -94,6 +97,9 @@ func main() {
 	prom.RegisterPlugin()
 	featureflags.RegisterPlugin()
 	trivia.RegisterPlugin()
+	rss.RegisterPlugin()
+	bulkrole.RegisterPlugin()
+	personalizer.RegisterPlugin()
 
 	// Register confusables replacer
 	confusables.Init()

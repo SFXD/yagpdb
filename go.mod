@@ -1,6 +1,6 @@
 module github.com/botlabs-gg/yagpdb/v2
 
-go 1.23.3
+go 1.25.0
 
 require (
 	emperror.dev/errors v0.8.1
@@ -38,6 +38,7 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.24
 	github.com/miolini/datacounter v1.0.3
 	github.com/mitchellh/cli v1.1.5
+	github.com/mmcdole/gofeed v1.3.0
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/natefinch/lumberjack v2.0.0+incompatible
@@ -62,7 +63,7 @@ require (
 	golang.org/x/crypto v0.36.0
 	golang.org/x/image v0.18.0
 	golang.org/x/net v0.38.0
-	golang.org/x/oauth2 v0.10.0
+	golang.org/x/oauth2 v0.27.0
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0
 	golang.org/x/time v0.3.0
@@ -83,10 +84,11 @@ require (
 )
 
 require (
-	cloud.google.com/go/compute v1.21.0 // indirect
-	cloud.google.com/go/compute/metadata v0.2.3 // indirect
+	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/Masterminds/sprig/v3 v3.2.3 // indirect
+	github.com/PuerkitoBio/goquery v1.8.0 // indirect
+	github.com/andybalholm/cascadia v1.3.1 // indirect
 	github.com/bytedance/sonic v1.9.2 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20221115062448-fe3a3abad311 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
@@ -97,6 +99,7 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
+	github.com/mmcdole/goxpp v1.1.1-0.20240225020742-a0c311522b23 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.8 // indirect
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
