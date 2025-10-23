@@ -1,12 +1,13 @@
 package reputation
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
-
+	
 	"github.com/botlabs-gg/yagpdb/v2/analytics"
 	"github.com/botlabs-gg/yagpdb/v2/bot/paginatedmessages"
 	"github.com/botlabs-gg/yagpdb/v2/lib/dstate"
@@ -166,22 +167,43 @@ var cmds = []*commands.YAGCommand{
 			return CmdGiveRep(parsed)
 		},
 	},
-	{
-		CmdCategory:         commands.CategoryFun,
-		Name:                "GiveRepTemp",
-		Aliases:             []string{},
-		Description:         "Gives rep to someone",
-		RequiredArgs:        1,
-		SlashCommandEnabled: true,
-		DefaultEnabled:      false,
-		Arguments: []*dcmd.ArgDef{
-			{Name: "User", Type: dcmd.User},
-			{Name: "Num", Type: dcmd.Int, Default: 1},
-			{Name: "Note", Type: dcmd.String},
-		},
-		ArgumentCombos: [][]int{{0}, {0, 1}, {0, 2}, {0, 1, 2}}, // allow optional Note that will be ignored
-		RunFunc:        CmdGiveRep,
+{
+	CmdCategory:         commands.CategoryModeration,
+	Name:                "reprocessrep",
+	Description:         "Reprocesses reputation from the last 5 years of messages",
+	RequireDiscordPerms: []int64{discordgo.PermissionAdministrator},
+	DefaultEnabled:      false,
+	RunFunc: func(parsed *dcmd.Data) (interface{}, error) {
+		ctx := context.Background()
+
+		conf, err := GetConfig(ctx, parsed.GuildData.GS.ID)
+		if err != nil {
+			errMsg := fmt.Sprintf("❌ Failed to get reputation config: %v", err)
+			common.BotSession.ChannelMessageSend(parsed.ChannelID, errMsg)
+			return nil, err
+		}
+
+		if !conf.Enabled {
+			return createRepDisabledError(parsed.GuildData), nil
+		}
+
+		common.BotSession.ChannelMessageSend(parsed.ChannelID, "⏳ Starting reputation reprocessing... This may take a while.\nYou will receive periodic progress updates.")
+
+		stats, err := reprocessMessages(ctx, parsed.GuildData.GS, conf, parsed.ChannelID)
+		if err != nil {
+			errMsg := fmt.Sprintf("❌ **Critical error during reprocessing:**\n```\n%v\n```", err)
+			common.BotSession.ChannelMessageSend(parsed.ChannelID, errMsg)
+			return nil, err
+		}
+
+		return fmt.Sprintf("✅ **Reprocessing complete!**\n"+
+			"**Messages processed:** %d\n"+
+			"**Reputation given:** %d times\n"+
+			"**Users affected:** %d",
+			stats.MessagesProcessed, stats.RepGiven, stats.UsersAffected), nil
 	},
+},
+
 	{
 		CmdCategory:         commands.CategoryFun,
 		Name:                "SetRep",

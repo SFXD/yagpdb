@@ -76,6 +76,9 @@ func (p *Plugin) PluginInfo() *common.PluginInfo {
 
 func (p *Plugin) AddCommands() {
 	commands.AddRootCommands(p,
+		// Custom
+		Command_sfstatus,
+
 		// Info
 		info.Command,
 		invite.Command,
